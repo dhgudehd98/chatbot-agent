@@ -1,10 +1,12 @@
 package com.sh.commercechatbot.llm.dto.request;
 
-import com.sh.commercechatbot.reviewChatbot.dto.request.ChatRequestDto;
+import com.sh.commercechatbot.chat.dto.request.ChatMessageDto;
 import com.sh.commercechatbot.llm.enums.LlmModel;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+
+import java.util.List;
 
 @Getter
 @AllArgsConstructor
@@ -14,7 +16,7 @@ public class LlmChatRequestDto {
     private String prompt;
     private boolean useJson;
     private LlmModel llmModel;
-//    private List<ChatMessageDto> messageList;
+    private List<ChatMessageDto> messageList;
 
 
     public LlmChatRequestDto(String request, String systemPrompt, LlmModel model) {

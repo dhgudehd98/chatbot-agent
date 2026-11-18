@@ -47,19 +47,21 @@ public class GptService implements LlmClientService {
                 .onStatus(HttpStatusCode::is4xxClientError, (clientResponse -> {
                     return clientResponse.bodyToMono(String.class)
                             .flatMap(body ->{
-                                log.error("Error Response : {}", body);
-                                return Mono.error(new ChatbotException("LLM GPT API 요청 실패 : " + body, ChatbotErrorType.GPT_RESPONSE_ERROR));
+                                return Mono.error(new ChatbotException("LLM 요청 실패",
+                                        clientResponse.statusCode().value() == 429
+                                                ? ChatbotErrorType.LLM_RATE_LIMITED
+                                                : ChatbotErrorType.GPT_RESPONSE_ERROR));
                             });
                 }))
                 .bodyToFlux(GptResponseDto.class)
                 .takeWhile(response -> Optional.ofNullable(response.getSingleChoice().getFinish_reason()).isEmpty())
                 .map(gptResponseDto -> {
                     try {
-                        log.info("GPT 응답 값 : {}", gptResponseDto.getSingleChoice().getMessage().getContent());
+
                         return LlmChatResponseDto.getLlmChatResponseDtoFromNotStream(gptResponseDto);
                     } catch (Exception e) {
-                        log.error("[GPT Response Error] : " + e.getMessage());
-                        return new LlmChatResponseDto(new ChatbotError("500" , e.getMessage()));
+
+                        return new LlmChatResponseDto(new ChatbotError("500", "상담 응답 처리에 실패했습니다."));
                     }
                 });
     }
@@ -75,8 +77,10 @@ public class GptService implements LlmClientService {
                 .onStatus(HttpStatusCode::is4xxClientError, (clientResponse -> {
                     return clientResponse.bodyToMono(String.class)
                             .flatMap(body ->{
-                                log.error("Error Response : {}", body);
-                                return Mono.error(new ChatbotException("LLM GPT API 요청 실패 : " + body, ChatbotErrorType.GPT_RESPONSE_ERROR));
+                                return Mono.error(new ChatbotException("LLM 요청 실패",
+                                        clientResponse.statusCode().value() == 429
+                                                ? ChatbotErrorType.LLM_RATE_LIMITED
+                                                : ChatbotErrorType.GPT_RESPONSE_ERROR));
                             });
                 }))
                 .bodyToMono(GptResponseDto.class)

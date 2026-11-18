@@ -1,4 +1,4 @@
-package com.sh.commercechatbot.reviewChatbot.dto.response;
+package com.sh.commercechatbot.chat.dto.response;
 
 import com.sh.commercechatbot.common.exception.chatbot.ChatbotError;
 import com.sh.commercechatbot.common.exception.chatbot.ChatbotErrorResponse;
