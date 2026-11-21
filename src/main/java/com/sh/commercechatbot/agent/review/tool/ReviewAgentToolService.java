@@ -1,10 +1,17 @@
 package com.sh.commercechatbot.agent.review.tool;
 
+import com.sh.commercechatbot.chat.dto.request.ChatRequestDto;
+import com.sh.commercechatbot.es.product.dto.ProductSearchResultDto;
+import com.sh.commercechatbot.es.product.dto.ProductSearchResultRecord;
+import com.sh.commercechatbot.es.product.repositroy.ProductDocumentRepository;
+import com.sh.commercechatbot.es.product.service.ProductSearchResultService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 @Service
 @RequiredArgsConstructor
@@ -16,15 +23,34 @@ public class ReviewAgentToolService {
      * - 현재는 메서드명과 description만 정의한 초안이며 Agent에 실행 Tool로 등록하지 않는다.
      * - 입력·출력 계약과 조회 로직은 후속 구현에서 확정한다.
      */
+    private final ProductDocumentRepository documentRepository;
+    private final ProductSearchResultService productSearchResultService;
 
 
     @Tool(description = "사용자가 언급한 상품명으로 상품 후보를 검색한다. 상품 식별 정보가 없으면 호출하지 않고 상품명을 질문한다. 후보가 여러 개면 임의로 확정하지 않고 사용자에게 선택을 요청한다.")
-    public String searchProductByName(
-            @ToolParam(description = "사용자가 언급한 상품명. 브랜드와 색상을 포함할 수 있다.")
-            String productName) {
-        // 후속 작업: 검증된 상품명으로 Reactive ES 검색 후 제한된 후보 반환.
-        log.info("상품명 : {}", productName);
-        return "상품 검색 기능은 아직 구현되지 않았습니다. 현재는 상품명 추출과 Tool 선택만 확인할 수 있습니다.";
+    public Mono<ProductSearchResultRecord> searchProductByName(
+            @ToolParam(description = "사용자가 언급한 상품명. 브랜드와 색상을 포함할 수 있다.")String productName
+            ) {
+        // ES 조회 결과를 최대 5개로 제한한다.
+
+
+        return documentRepository.search(productName)
+                .take(5)
+                .collectList()
+                .map(searchResults -> {
+
+                    // 상품 검색결과가 존재하지 않는 경우
+                    if (searchResults.isEmpty()) {
+                        return ProductSearchResultRecord.notFound("NOT_FOUND");
+                    } else {
+                        return ProductSearchResultRecord.found(
+                                searchResults.size() == 1 ? "SINGLE_FOUND" : "MULTI_FOUND",
+                                searchResults
+                        );
+                    }
+                });
+
+
     }
 
 //    @Tool(description = "확정된 productVariantId로 상품명, 설명, 색상과 판매 상태를 조회한다. 사용자가 언급하지 않았거나 검증되지 않은 ID를 임의로 생성하지 않는다.")

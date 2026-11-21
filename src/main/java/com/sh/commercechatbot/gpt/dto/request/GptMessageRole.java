@@ -5,7 +5,8 @@ import com.fasterxml.jackson.annotation.JsonValue;
 public enum GptMessageRole {
     SYSTEM,
     USER,
-    ASSISTANT;
+    ASSISTANT,
+    TOOL;
 
     @JsonValue
     public String toValue() {

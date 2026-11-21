@@ -48,9 +48,11 @@ public class GptRequestDto {
                 GptMessageRole role = switch (message.getRole()) {
                     case "USER" -> GptMessageRole.USER;
                     case "ASSISTANT" -> GptMessageRole.ASSISTANT;
+                    case "TOOL" -> GptMessageRole.TOOL;
                     default -> throw new IllegalArgumentException("Invalid chat message role");
                 };
-                this.messages.add(new GptRequestCompletionDto(role, message.getContent()));
+                this.messages.add(new GptRequestCompletionDto(role, message.getContent(),
+                        message.getToolCalls(), message.getToolCallId()));
             }
         }
 

@@ -1,5 +1,6 @@
 package com.sh.commercechatbot.agent;
 
+import com.sh.commercechatbot.chat.dto.request.ChatRequestDto;
 import com.sh.commercechatbot.enums.chatbot.request.ChatType;
 import com.sh.commercechatbot.llm.dto.request.LlmChatRequestDto;
 import reactor.core.publisher.Mono;

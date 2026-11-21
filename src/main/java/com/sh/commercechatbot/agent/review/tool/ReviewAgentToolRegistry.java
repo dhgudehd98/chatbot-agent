@@ -2,6 +2,7 @@ package com.sh.commercechatbot.agent.review.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sh.commercechatbot.es.product.dto.ProductSearchResultRecord;
 import com.sh.commercechatbot.gpt.dto.request.GptToolDefinition;
 import com.sh.commercechatbot.gpt.dto.response.GptToolCall;
 import com.sh.commercechatbot.common.exception.chatbot.*;
@@ -35,9 +36,11 @@ public class ReviewAgentToolRegistry {
         return definitions;
     }
 
-    /** 현재 유일한 Tool은 미구현 안내를 반환하므로 GPT에 재전달하지 않고 종료한다. */
-    public Mono<String> execute(GptToolCall call) {
-        return Mono.fromCallable(() -> {
+    /** 허용된 Tool의 입력을 검증하고 Reactive 실행 결과를 Agent에 반환한다. */
+    public Mono<ProductSearchResultRecord> execute(
+            GptToolCall call)
+    {
+        return Mono.defer(() -> {
             if (call == null || call.id() == null || call.id().isBlank()
                     || !"function".equals(call.type()) || call.function() == null
                     || !"searchProductByName".equals(call.function().name())
