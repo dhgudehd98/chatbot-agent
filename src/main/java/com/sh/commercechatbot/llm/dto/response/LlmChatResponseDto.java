@@ -12,6 +12,12 @@ import lombok.NoArgsConstructor;
 public class LlmChatResponseDto {
     private String llmResponse;
     private ChatbotError error;
+    private java.util.List<com.sh.commercechatbot.gpt.dto.response.GptToolCall> toolCalls;
+
+    public LlmChatResponseDto(String llmResponse, ChatbotError error) {
+        this.llmResponse = llmResponse;
+        this.error = error;
+    }
 
     public LlmChatResponseDto(ChatbotError responseError) {
         this.error = responseError;

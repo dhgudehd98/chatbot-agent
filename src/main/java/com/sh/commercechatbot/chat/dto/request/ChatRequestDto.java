@@ -1,5 +1,6 @@
 package com.sh.commercechatbot.chat.dto.request;
 
+import com.sh.commercechatbot.enums.chatbot.request.ChatType;
 import com.sh.commercechatbot.llm.enums.LlmModel;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -12,6 +13,7 @@ import lombok.Setter;
 @NoArgsConstructor
 public class ChatRequestDto {
     private Long selectedVariantId;
+    private ChatType chatType;
     private String currentMessage;
     private LlmModel llmModel;
 

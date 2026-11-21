@@ -5,6 +5,7 @@ import com.sh.commercechatbot.common.exception.chatbot.ChatbotErrorType;
 import com.sh.commercechatbot.common.exception.chatbot.ChatbotException;
 import com.sh.commercechatbot.gpt.dto.request.GptRequestDto;
 import com.sh.commercechatbot.gpt.dto.response.GptResponseDto;
+import com.sh.commercechatbot.gpt.dto.response.GptResponseMessageDto;
 import com.sh.commercechatbot.llm.dto.request.LlmChatRequestDto;
 import com.sh.commercechatbot.llm.dto.response.LlmChatResponseDto;
 import com.sh.commercechatbot.llm.enums.LlmType;
@@ -85,12 +86,12 @@ public class GptService implements LlmClientService {
                 }))
                 .bodyToMono(GptResponseDto.class)
                 .map(response -> {
-                    String content = response
-                            .getSingleChoice()
-                            .getMessage()
-                            .getContent();
-
-                    return new LlmChatResponseDto(content);
+                    GptResponseMessageDto message =
+                            response.getSingleChoice().getMessage();
+                    if (message == null) {
+                        throw new ChatbotException("LLM 응답 오류", ChatbotErrorType.GPT_RESPONSE_ERROR);
+                    }
+                    return new LlmChatResponseDto(message.getContent(), null, message.getTool_calls());
                 });
     }
 }
