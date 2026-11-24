@@ -17,6 +17,8 @@ public class ChatMessageDto {
     private List<GptToolCall> toolCalls;
     private String toolCallId;
 
+
+
     public ChatMessageDto(String role, String content) {
         this(role, content, null, null);
     }

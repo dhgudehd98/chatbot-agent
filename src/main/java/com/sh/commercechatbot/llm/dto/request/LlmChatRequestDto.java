@@ -20,7 +20,7 @@ public class LlmChatRequestDto {
     private List<ChatMessageDto> messageList;
     private List<GptToolDefinition> tools;
 
-    public LlmChatRequestDto(String request, String prompt, boolean useJson,
+    public  LlmChatRequestDto(String request, String prompt, boolean useJson,
                              LlmModel model, List<ChatMessageDto> messageList) {
         this(request, prompt, useJson, model, messageList, null);
     }

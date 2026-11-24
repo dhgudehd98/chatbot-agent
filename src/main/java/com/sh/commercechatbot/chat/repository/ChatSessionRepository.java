@@ -8,4 +8,8 @@ public interface ChatSessionRepository {
     ChatType getChatType();
 
     Mono<ChatSessionDto> findChatSession(Long memberId);
+
+    Mono<Boolean> save(Long memberId, ChatSessionDto sessionDto);
+
+    String createKey(Long memberId);
 }

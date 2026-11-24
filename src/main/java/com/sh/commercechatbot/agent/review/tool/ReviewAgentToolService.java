@@ -31,9 +31,6 @@ public class ReviewAgentToolService {
     public Mono<ProductSearchResultRecord> searchProductByName(
             @ToolParam(description = "사용자가 언급한 상품명. 브랜드와 색상을 포함할 수 있다.")String productName
             ) {
-        // ES 조회 결과를 최대 5개로 제한한다.
-
-
         return documentRepository.search(productName)
                 .take(5)
                 .collectList()
@@ -49,8 +46,6 @@ public class ReviewAgentToolService {
                         );
                     }
                 });
-
-
     }
 
 //    @Tool(description = "확정된 productVariantId로 상품명, 설명, 색상과 판매 상태를 조회한다. 사용자가 언급하지 않았거나 검증되지 않은 ID를 임의로 생성하지 않는다.")

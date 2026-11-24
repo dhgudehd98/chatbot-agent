@@ -3,6 +3,7 @@ package com.sh.commercechatbot.gpt.service;
 import com.sh.commercechatbot.common.exception.chatbot.ChatbotError;
 import com.sh.commercechatbot.common.exception.chatbot.ChatbotErrorType;
 import com.sh.commercechatbot.common.exception.chatbot.ChatbotException;
+import com.sh.commercechatbot.gpt.dto.request.GptRequestCompletionDto;
 import com.sh.commercechatbot.gpt.dto.request.GptRequestDto;
 import com.sh.commercechatbot.gpt.dto.response.GptResponseDto;
 import com.sh.commercechatbot.gpt.dto.response.GptResponseMessageDto;
@@ -70,6 +71,7 @@ public class GptService implements LlmClientService {
     @Override
     public Mono<LlmChatResponseDto> getNonStream(LlmChatRequestDto llmChatRequestDto) {
         GptRequestDto request = new GptRequestDto(llmChatRequestDto, false);
+
         return webClient.post()
                 .uri("https://api.openai.com/v1/chat/completions")
                 .header("Authorization", "Bearer " + gptApiKey)

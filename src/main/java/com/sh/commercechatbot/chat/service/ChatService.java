@@ -34,6 +34,8 @@ public class ChatService {
     private int maxHistoryChars = 20000;
     @Value("${chat.session.read-timeout:2s}")
     private Duration sessionReadTimeout = Duration.ofSeconds(2);
+    @Value("${chat.session.write-timeout:2s}")
+    private Duration sessionWriteTimeout = Duration.ofSeconds(2);
 
     public Mono<ChatResponseDto> chat(Long memberId, ChatRequestDto request) {
 
@@ -51,13 +53,54 @@ public class ChatService {
 
             return prepareLlmRequest(memberId, request, selectedRepository)
                     .flatMap(selectedAgent::respond)
-                    .map(answer -> new ChatResponseDto(answer, null));
+                    .flatMap(answer -> saveResponseSession(memberId, selectedRepository, new ChatResponseDto(answer , null)));
         });
+    }
+
+    private Mono<ChatResponseDto> saveResponseSession(Long memberId, ChatSessionRepository sessionRepository, ChatResponseDto chatResponseDto) {
+        return Mono.defer(() -> {
+            if (chatResponseDto == null || chatResponseDto.getError() != null
+                    || chatResponseDto.getResponse() == null || chatResponseDto.getResponse().isBlank()) {
+                return Mono.error(sessionError());
+            }
+            // 요청에 대한 메세지는 이미 저장 후, LLM의 최종 답변에 대한 내용만 저장
+            return sessionRepository.findChatSession(memberId)
+                    .timeout(sessionReadTimeout)
+                    .switchIfEmpty(Mono.error(sessionError()))
+                    .flatMap(session -> {
+                        if (!Objects.equals(memberId, session.getMemberId()) || session.getMessages() == null) {
+                            return Mono.error(sessionError());
+                        }
+
+                        List<ChatMessageDto> messages = new ArrayList<>(session.getMessages());
+                        long totalChars = chatResponseDto.getResponse().length();
+
+                        for (ChatMessageDto previous : messages) {
+                            if (previous == null || previous.getContent() == null) {
+                                return Mono.error(sessionError());
+                            }
+                            totalChars += previous.getContent().length();
+                        }
+                        if (messages.size() >= maxHistoryMessages || totalChars > maxHistoryChars) {
+                            return Mono.error(invalidRequest());
+                        }
+
+                        messages.add(new ChatMessageDto("ASSISTANT", chatResponseDto.getResponse()));
+                        ChatSessionDto completed = new ChatSessionDto(memberId,
+                                session.getProductDto(), session.getCandidates(), messages);
+
+                        return sessionRepository.save(memberId, completed)
+                                .timeout(sessionWriteTimeout)
+                                .filter(Boolean.TRUE::equals)
+                                .switchIfEmpty(Mono.error(sessionError()))
+                                .thenReturn(chatResponseDto);
+                    });
+        }).onErrorMap(error -> error instanceof ChatbotException ? error : sessionError());
     }
 
 
     /**
-     * 요청 값 검증 및 저장된 대화내역 조회
+     * 요청 검증, 대화내역 조회와 현재 메시지 반영 후 LLM 요청을 구성한다.
      */
     private Mono<LlmChatRequestDto> prepareLlmRequest(Long memberId, ChatRequestDto request,
                                                     ChatSessionRepository repository) {
@@ -69,19 +112,9 @@ public class ChatService {
                     .timeout(sessionReadTimeout)
                     .onErrorMap(error -> sessionError())
                     .switchIfEmpty(Mono.fromSupplier(() -> ChatSessionDto.create(memberId)))
-                    .map(session -> prepareSession(memberId, session, message))
-                    .flatMap(session -> createLlmRequest(session, model));
-        });
-    }
-
-    /** 선택 상품과 대화 이력을 LLM 요청으로 변환한다. memberId는 전달하지 않는다. */
-    private Mono<LlmChatRequestDto> createLlmRequest(ChatSessionDto session, LlmModel model) {
-        return Mono.fromCallable(() -> {
-            List<ChatMessageDto> messages = new ArrayList<>();
-
-            // 현재 사용자 메시지는 prepareSession에서 한 번만 추가한다.
-            messages.addAll(session.getMessages());
-            return new LlmChatRequestDto(null, null, false, model, List.copyOf(messages));
+                    .flatMap(session -> saveSession(memberId, session, message, repository))
+                    .map(session -> new LlmChatRequestDto(
+                            null, null, false, model, List.copyOf(session.getMessages())));
         });
     }
 
@@ -101,7 +134,7 @@ public class ChatService {
         }
     }
 
-    private ChatSessionDto prepareSession(Long memberId, ChatSessionDto session, String message) {
+    private Mono<ChatSessionDto> saveSession(Long memberId, ChatSessionDto session, String message, ChatSessionRepository sessionRepository) {
         if (!Objects.equals(memberId, session.getMemberId())) {
             throw sessionError();
         }
@@ -128,7 +161,20 @@ public class ChatService {
             throw invalidRequest();
         }
         messages.add(new ChatMessageDto("USER", message));
-        return new ChatSessionDto(memberId, session.getProductDto(), messages);
+
+        ChatSessionDto savedSession = new ChatSessionDto(
+                memberId,
+                session.getProductDto(),
+                session.getCandidates(),
+                messages);
+
+
+        return sessionRepository.save(memberId, savedSession)
+                .timeout(sessionWriteTimeout)
+                .onErrorMap(error -> sessionError())
+                .filter(Boolean.TRUE::equals)
+                .switchIfEmpty(Mono.error(sessionError()))
+                .thenReturn(savedSession);
     }
 
     private ChatbotException invalidRequest() {
