@@ -1,6 +1,7 @@
 package com.sh.commercechatbot.agent;
 
 import com.sh.commercechatbot.chat.dto.request.ChatRequestDto;
+import com.sh.commercechatbot.chat.repository.ChatSessionRepository;
 import com.sh.commercechatbot.enums.chatbot.request.ChatType;
 import com.sh.commercechatbot.llm.dto.request.LlmChatRequestDto;
 import reactor.core.publisher.Mono;
@@ -9,5 +10,5 @@ public interface ChatAgent {
 
     ChatType getChatType();
 
-    Mono<String> respond(LlmChatRequestDto chatRequestDto);
+    Mono<String> respond(LlmChatRequestDto chatRequestDto, Long memberId, ChatSessionRepository sessionRepository);
 }

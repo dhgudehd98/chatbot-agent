@@ -52,7 +52,7 @@ public class ChatService {
             }
 
             return prepareLlmRequest(memberId, request, selectedRepository)
-                    .flatMap(selectedAgent::respond)
+                    .flatMap(chatRequestDto -> selectedAgent.respond(chatRequestDto, memberId, selectedRepository))
                     .flatMap(answer -> saveResponseSession(memberId, selectedRepository, new ChatResponseDto(answer , null)));
         });
     }
