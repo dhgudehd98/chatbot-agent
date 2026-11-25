@@ -58,7 +58,12 @@ public class ReviewAgentToolRegistry {
             GptToolDefinition review = new GptToolDefinition("function",
                     new GptToolDefinition.Function(reviewDefinition.name(), reviewDefinition.description(),
                             mapper.readTree(reviewDefinition.inputSchema())));
-            this.definitions = List.of(search, confirm, review);
+            ToolDefinition allReviewDefinition = ToolDefinition.from(ReviewAgentToolService.class.getMethod(
+                    "searchReviewAll", Long.class, String.class));
+            GptToolDefinition allReviews = new GptToolDefinition("function",
+                    new GptToolDefinition.Function(allReviewDefinition.name(), allReviewDefinition.description(),
+                            mapper.readTree(allReviewDefinition.inputSchema())));
+            this.definitions = List.of(search, confirm, review, allReviews);
         } catch (Exception exception) {
             throw new IllegalStateException("Tool definition configuration failed");
         }
@@ -106,8 +111,11 @@ public class ReviewAgentToolRegistry {
                     }
                     yield service.confirmProductSelection(memberId, id.asLong(), sessionRepository).map(ReviewToolResult::product);
                 }
-                case "searchReviewByBodyInfoAndPreferenceQuery" -> {
-                    Set<String> allowed = Set.of("variantId", "weight", "height", "preferenceQuery");
+                case "searchReviewByBodyInfoAndPreferenceQuery", "searchReviewAll" -> {
+                    boolean withoutBodyInfo = "searchReviewAll".equals(call.function().name());
+                    Set<String> allowed = withoutBodyInfo
+                            ? Set.of("variantId", "preferenceQuery")
+                            : Set.of("variantId", "weight", "height", "preferenceQuery");
                     java.util.Iterator<String> fields = arguments.fieldNames();
                     while (fields.hasNext()) {
                         if (!allowed.contains(fields.next())) {
@@ -135,7 +143,9 @@ public class ReviewAgentToolRegistry {
                                         || !Objects.equals(id.asLong(), session.getProductDto().getProductVariantId())) {
                                     return Mono.error(invalidTool());
                                 }
-                                return service.searchReviewByBodyInfoAndPreferenceQuery(id.asLong(), weight, height, query)
+                                return (withoutBodyInfo
+                                        ? service.searchReviewAll(id.asLong(), query)
+                                        : service.searchReviewByBodyInfoAndPreferenceQuery(id.asLong(), weight, height, query))
                                         .map(ReviewToolResult::reviews);
                             });
                 }

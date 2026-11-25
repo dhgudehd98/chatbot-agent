@@ -65,7 +65,7 @@ public class ReviewAgent implements ChatAgent {
             이 예시는 해석 방법이며 실제 답변은 전달된 대화에 있는 상품명과 조건만 사용하라.
 
             [새로운 상품 검색과 상담]
-            새로운 사이즈 상담은 상품 검색 → 사용자 상품 확인·선택 → 서버 상품 확정 → 신체·핏 확인 → 리뷰 검색 순서로 진행하라.
+            새로운 사이즈 상담은 상품 검색 → 사용자 상품 확인·선택 → 서버 상품 확정 → 제공된 조건에 맞는 리뷰 검색 순서로 진행하라.
             이전 요청을 되묻는 대화 이력 확인 질문에는 위 순서를 적용하지 않고 이력에서 직접 답하라.
             상품명 언급만으로 상품이 확정되었다고 판단하지 마라.
             상품 확정 여부는 서버의 CONFIRMED_PRODUCT_DATA 또는 현재 Tool의 CONFIRMED 결과로만 확인하라.
@@ -83,7 +83,7 @@ public class ReviewAgent implements ChatAgent {
             후보가 하나여도 그 상품이 맞는지 질문하고, 여러 개면 어떤 상품인지 선택을 요청하라.
             상품 확인 질문을 보낸 뒤에는 이번 응답을 종료하고 사용자의 다음 메시지를 기다려라.
             사용자의 선택이 명확할 때 confirmProductSelection을 호출하고,
-            CONFIRMED 결과를 받은 뒤에만 필요한 신체·핏 정보를 질문하라.
+            CONFIRMED 결과를 받은 뒤 제공된 신체·핏 조건을 확인하되, 신체정보는 필수가 아니다.
             이미 제공된 정보는 반복해서 묻지 말고, 신체정보 제공을 원하지 않으면 강요하지 마라.
             사용자가 다른 새 상품을 요청하면 이전 확정 상품을 새 상품으로 간주하지 말고 새 상품을 검색하라.
             이미 받은 결과로 답할 수 있으면 재검색하지 말고, 같은 상품명 검색을 반복하지 마라.
@@ -108,9 +108,16 @@ public class ReviewAgent implements ChatAgent {
             서버가 제공한 현재 후보 데이터에서만 선택 ID를 가져오며 ID를 추측하지 마라.
             사용자가 이전 후보를 명시적으로 선택·확인한 경우에만 confirmProductSelection을 호출하라.
             여러 후보 중 선택이 모호하면 추가 질문하라. 검색 직후 스스로 상품을 확정하지 마라.
-            CONFIRMED이면 해당 상품으로 상담을 이어가고 기존 대화에 없는 신체·핏 정보만 질문하라.
+            CONFIRMED이면 해당 상품으로 상담을 이어가라. 신체정보가 없다는 이유만으로 검색을 중단하지 마라.
             조회 결과에 없는 상품이나 옵션을 생성하지 마라.
-            상품이 확정된 후에만 searchReviewByBodyInfoAndPreferenceQuery로 리뷰를 조회하라.
+            상품이 확정된 후에만 리뷰 검색 Tool을 호출하라.
+            키·몸무게가 모두 없으면 searchReviewAll로 신체 조건 없이 리뷰를 검색하라.
+            신체정보 입력을 리뷰 검색의 필수 단계로 요구하지 말고, 제공을 원하지 않으면 반복해서 묻지 마라.
+            키 또는 몸무게가 제공되었다면 searchReviewByBodyInfoAndPreferenceQuery에 제공된 조건만 전달하라.
+            두 검색 모두 preferenceQuery에는 사용자가 언급한 핏 요구만 전달하고, 없으면 생략하라.
+            searchReviewAll 결과는 신체 유사성으로 선별한 개인 맞춤 근거가 아니다.
+            신체 조건 없이 검색한 제한된 리뷰 표본임을 알리고, 전체 리뷰 통계나 사용자에게 맞는 사이즈로 단정하지 마라.
+            더 정확한 상담을 위한 신체정보는 선택적으로 요청할 수 있지만, 정보 없이도 리뷰 경향을 안내하라.
             사용자가 제공하지 않은 신체 조건은 추측하지 마라.
             상품 검색 결과만으로 사이즈를 추천하지 마라.
             리뷰는 제한된 표본이다. REVIEWS_FOUND이면 전달된 리뷰의 착용 경향과 상충 내용을 설명하라.
@@ -369,6 +376,8 @@ public class ReviewAgent implements ChatAgent {
             }
             return switch (call.function().name()) {
                 case "searchProductByName" -> "searchProductByName:" + arguments.path("productName").asText().strip();
+                case "searchReviewAll" -> "searchReviewAll:" + arguments.path("variantId").asText()
+                        + ":" + arguments.path("preferenceQuery").asText().strip();
                 case "confirmProductSelection" -> "confirmProductSelection:" + arguments.path("variantId").asText();
                 case "searchReviewByBodyInfoAndPreferenceQuery" -> "searchReviewByBodyInfoAndPreferenceQuery:"
                         + arguments.path("variantId").asText() + ":" + arguments.path("weight").asText()

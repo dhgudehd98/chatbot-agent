@@ -18,6 +18,7 @@ import reactor.core.scheduler.Schedulers;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
 
 @RequiredArgsConstructor
@@ -28,145 +29,57 @@ public class ReviewDocumentNativeQueryImpl implements ReviewDocumentNativeQuery 
     private final EmbeddingModel embeddingModel;
 
     @Override
-    public Mono<List<ReviewDocument>> searchReviewAll(Long variantId) {
+    public Mono<List<ReviewDocument>> searchReviewAll(Long variantId, String preferenceQuery) {
 
-        NativeQuery query = NativeQuery.builder()
-                .withQuery(queryBuilder -> queryBuilder
-                        .bool(bool -> {
-                            bool.filter(filter -> filter
-                                    .term(term -> term
-                                            .field("productVariantId")
-                                            .value(variantId)
-                                    )
-                            );
+        Query filterQuery = Query.of(query -> query.bool(bool -> {
+            bool.filter(filter -> filter.term(term -> term
+                    .field("productVariantId")
+                    .value(variantId)
+            ));
 
-                            return bool;
-                        })
-                )
-                .withPageable(
-                        PageRequest.of(
-                                0,
-                                50,
-                                Sort.by(
-                                        Sort.Order.desc("sourceUpdatedAt")
-                                )
-                        )
-                )
-                .build();
+            return bool;
+        }));
 
-        return operations.search(query, ReviewDocument.class)
-                .map(searchHit -> searchHit.getContent())
-                .collectList();
-    }
-    @Override
-    public Mono<List<ReviewDocument>> searchByPreferenceQuery(Long variantId, String preferenceQuery) {
+        if (preferenceQuery != null) {
+           return Mono.fromCallable(() -> embeddingModel.embed(preferenceQuery))
+                   .subscribeOn(Schedulers.boundedElastic())
+                   .flatMap(embedding -> {
+                       List<Float> vectors = new ArrayList<>();
 
+                       for (float vector : embedding) {
+                           vectors.add(vector);
+                       }
 
-        return Mono.fromCallable(() ->
-                        embeddingModel.embed(preferenceQuery)
-                )
-                .subscribeOn(Schedulers.boundedElastic())
-                .flatMap(preferenceVectors -> {
-                    if (preferenceVectors == null ||
-                            preferenceVectors.length == 0) {
-                        return Mono.just(List.of());
-                    }
+                       KnnQuery knnQuery = KnnQuery.of(k -> k
+                               .field("contentEmbedding")
+                               .queryVector(vectors)
+                               // 필터에 맞는 리뷰 중 유사한 리뷰를 최대 10건 반환한다.
+                               .k(10)
+                               .numCandidates(100)
+                               .filter(filterQuery));
 
-                    List<Float> vectors = new ArrayList<>(
-                            preferenceVectors.length
-                    );
+                       NativeQuery nativeQuery = NativeQuery.builder()
+                               .withKnnQuery(knnQuery)
+                               .withPageable(PageRequest.of(0 , 10))
+                               .build();
 
-                    for (float vector : preferenceVectors) {
-                        vectors.add(vector);
-                    }
-
-                    KnnQuery knnQuery = KnnQuery.of(k -> k
-                            .field("contentEmbedding")
-                            .queryVector(vectors)
-                            .k(50)
-                            .numCandidates(100)
-                            .filter(f -> f
-                                    .term(t -> t
-                                            .field("productVariantId")
-                                            .value(variantId)
-                                    )
-                            )
-                    );
-
-                    NativeQuery query = NativeQuery.builder()
-                            .withKnnQuery(knnQuery)
-                            .build();
-
-                    return operations.search(
-                                    query,
-                                    ReviewDocument.class
-                            )
-                            .map(SearchHit::getContent)
-                            .collectList();
-                });
-
-    }
-
-    @Override
-    public Mono<List<ReviewDocument>> searchReviewByBodyInfo(Long variantId, ReviewOptionalInfoDto optionalInfoDto) {
-        log.info("[사용자 입력 신체정보 값에 따른 상품 리뷰 검색]");
-        if (variantId == null || optionalInfoDto == null) {
-            return Mono.just(List.of());
+                       return operations.search(nativeQuery, ReviewDocument.class)
+                               .map(searchHit -> searchHit.getContent())
+                               .collectList();
+                   });
         }
 
-        Integer height = optionalInfoDto.getHeight();
-        Integer weight = optionalInfoDto.getWeight();
-
-        // 둘다 입력한 경우에만 빈 값 설정 -> 범위값 산정을 못해서
-        // 값이 하나라도 있으면 있는 데이터 기준으로 데이터 조회
-        if (height == null && weight == null) {
-            return Mono.just(List.of());
-        }
-
-        NativeQuery query = NativeQuery.builder()
-                .withQuery(queryBuilder -> queryBuilder
-                        .bool(bool -> {
-                            bool.filter(filter -> filter
-                                    .term(term -> term
-                                            .field("productVariantId")
-                                            .value(variantId)
-                                    )
-                            );
-
-                            if (height != null) {
-                                bool.filter(filter -> filter
-                                        .range(range -> range
-                                                .field("heightCm")
-                                                .gte(JsonData.of(height -
-                                                        5))
-                                                .lte(JsonData.of(height +
-                                                        5))
-                                        )
-                                );
-                            }
-
-                            if (weight != null) {
-                                bool.filter(filter -> filter
-                                        .range(range -> range
-                                                .field("weightKg")
-                                                .gte(JsonData.of(weight -
-                                                        5))
-                                                .lte(JsonData.of(weight +
-                                                        5))
-                                        )
-                                );
-                            }
-
-                            return bool;
-                        })
-                )
+        NativeQuery nativeQuery = NativeQuery.builder()
+                .withFilter(filterQuery)
                 .withPageable(PageRequest.of(0, 10))
                 .build();
 
-        return operations.search(query, ReviewDocument.class)
-                .map(SearchHit::getContent)
+        return operations.search(nativeQuery, ReviewDocument.class)
+                .map(searchHit -> searchHit.getContent())
                 .collectList();
     }
+
+
 
     @Override
     public Mono<List<ReviewDocument>> searchReviewByBodyInfoAndPreferenceQuery(
@@ -180,7 +93,8 @@ public class ReviewDocumentNativeQueryImpl implements ReviewDocumentNativeQuery 
             String searchCode = preferenceQuery == null || preferenceQuery.isBlank()
                     ? "REVIEW_ES_FILTER_SEARCH" : "REVIEW_ES_KNN_SEARCH";
             log.info("requestId={} code={} limit={}", requestId, searchCode, 10);
-            java.util.function.Function<NativeQuery, Mono<List<ReviewDocument>>> executeSearch = query ->
+
+            Function<NativeQuery, Mono<List<ReviewDocument>>> executeSearch = query ->
                     operations.search(query, ReviewDocument.class)
                             .map(SearchHit::getContent)
                             .collectList()

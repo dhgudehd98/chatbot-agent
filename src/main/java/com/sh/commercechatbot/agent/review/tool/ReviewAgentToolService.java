@@ -3,6 +3,7 @@ package com.sh.commercechatbot.agent.review.tool;
 import com.sh.commercechatbot.chat.dto.request.ChatSessionDto;
 import com.sh.commercechatbot.common.exception.chatbot.ChatbotException;
 import com.sh.commercechatbot.common.exception.chatbot.ChatbotErrorType;
+import com.sh.commercechatbot.es.review.dto.ReviewEvidenceDto;
 import com.sh.commercechatbot.es.review.repository.ReviewDocumentRepository;
 import org.springframework.beans.factory.annotation.Value;
 import java.time.Duration;
@@ -100,7 +101,7 @@ public class ReviewAgentToolService {
     }
 
     @Tool(description = "서버에서 확정된 상품의 리뷰를 신체 조건과 착용 요구로 검색한다. 상품 미확정 시 호출하지 않고, 사용자가 제공하지 않은 조건은 추측하지 않는다.")
-    public Mono<List<com.sh.commercechatbot.es.review.dto.ReviewEvidenceDto>> searchReviewByBodyInfoAndPreferenceQuery(
+    public Mono<List<ReviewEvidenceDto>> searchReviewByBodyInfoAndPreferenceQuery(
             @ToolParam(description = "세션에 확정된 상품의 Variant ID") Long variantId,
             @ToolParam(description = "사용자가 제공한 몸무게(kg)", required = false) Integer weight,
             @ToolParam(description = "사용자가 제공한 키(cm)", required = false) Integer height,
@@ -120,6 +121,21 @@ public class ReviewAgentToolService {
                     .doOnNext(evidences -> log.info("requestId={} code={} evidenceCount={}", requestId,
                             evidences.isEmpty() ? "REVIEW_EVIDENCE_EMPTY" : "REVIEW_EVIDENCE_READY", evidences.size()))
                     .doOnError(error -> log.warn("requestId={} code=REVIEW_TOOL_FAILED", requestId));
+        });
+    }
+
+    @Tool(description = "서버에서 확정된 상품의 리뷰를 키·몸무게 필터 없이 검색한다. 신체정보가 없어도 사용할 수 있다. 핏 요구는 선택값이며, 결과는 개인 맞춤 근거가 아닌 제한된 리뷰 표본이다.")
+    public Mono<List<ReviewEvidenceDto>> searchReviewAll(
+            @ToolParam(description = "세션에 확정된 상품의 VariantId") Long variantId,
+            @ToolParam(description = "사용자가 원하는 핏", required = false) String preferenceQuery
+    ) {
+        return Mono.defer(() ->{
+            return reviewDocumentRepository.searchReviewAll(variantId, preferenceQuery)
+                    .map(reviewDocuments -> reviewDocuments.stream()
+                            .filter(reviewDocument -> variantId.equals(reviewDocument.getProductVariantId()))
+                            .limit(10)
+                            .map(reviewDocument -> new ReviewEvidenceDto(reviewDocument))
+                            .toList());
         });
     }
 
