@@ -4,7 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sh.commercechatbot.chat.repository.ChatSessionRepository;
 import org.springframework.ai.tool.annotation.Tool;
-import com.sh.commercechatbot.es.product.dto.ProductSearchResultRecord;
+import com.sh.commercechatbot.agent.review.tool.dto.ReviewToolResult;
+import java.time.Duration;
+import java.util.Set;
+import java.util.Objects;
 import com.sh.commercechatbot.gpt.dto.request.GptToolDefinition;
 import com.sh.commercechatbot.gpt.dto.response.GptToolCall;
 import com.sh.commercechatbot.common.exception.chatbot.*;
@@ -49,7 +52,13 @@ public class ReviewAgentToolRegistry {
                     """);
             GptToolDefinition confirm = new GptToolDefinition("function",
                     new GptToolDefinition.Function("confirmProductSelection", confirmation.description(), confirmationSchema));
-            this.definitions = List.of(search, confirm);
+
+            ToolDefinition reviewDefinition = ToolDefinition.from(ReviewAgentToolService.class.getMethod(
+                    "searchReviewByBodyInfoAndPreferenceQuery", Long.class, Integer.class, Integer.class, String.class));
+            GptToolDefinition review = new GptToolDefinition("function",
+                    new GptToolDefinition.Function(reviewDefinition.name(), reviewDefinition.description(),
+                            mapper.readTree(reviewDefinition.inputSchema())));
+            this.definitions = List.of(search, confirm, review);
         } catch (Exception exception) {
             throw new IllegalStateException("Tool definition configuration failed");
         }
@@ -60,7 +69,7 @@ public class ReviewAgentToolRegistry {
     }
 
     /** 허용된 Tool의 입력을 검증하고 Reactive 실행 결과를 Agent에 반환한다. */
-    public Mono<ProductSearchResultRecord> execute(
+    public Mono<ReviewToolResult> execute(
             GptToolCall call, Long memberId, ChatSessionRepository sessionRepository)
     {
         return Mono.defer(() -> {
@@ -76,30 +85,75 @@ public class ReviewAgentToolRegistry {
             } catch (Exception exception) {
                 throw invalidTool();
             }
-            if (arguments == null || !arguments.isObject() || arguments.size() != 1) {
+            if (arguments == null || !arguments.isObject() || arguments.size() == 0) {
                 throw invalidTool();
             }
             return switch (call.function().name()) {
                 case "searchProductByName" -> {
-                    if (!arguments.has("productName") || !arguments.get("productName").isTextual()) {
+                    if (arguments.size() != 1 || !arguments.has("productName") || !arguments.get("productName").isTextual()) {
                         throw invalidTool();
                     }
                     String productName = arguments.get("productName").asText().strip();
                     if (productName.isEmpty() || productName.length() > 200) {
                         throw invalidTool();
                     }
-                    yield service.searchProductByName(productName);
+                    yield service.searchProductByName(productName).map(ReviewToolResult::product);
                 }
                 case "confirmProductSelection" -> {
                     JsonNode id = arguments.get("variantId");
-                    if (id == null || !id.isIntegralNumber() || !id.canConvertToLong() || id.asLong() <= 0) {
+                    if (arguments.size() != 1 || id == null || !id.isIntegralNumber() || !id.canConvertToLong() || id.asLong() <= 0) {
                         throw invalidTool();
                     }
-                    yield service.confirmProductSelection(memberId, id.asLong(), sessionRepository);
+                    yield service.confirmProductSelection(memberId, id.asLong(), sessionRepository).map(ReviewToolResult::product);
+                }
+                case "searchReviewByBodyInfoAndPreferenceQuery" -> {
+                    Set<String> allowed = Set.of("variantId", "weight", "height", "preferenceQuery");
+                    java.util.Iterator<String> fields = arguments.fieldNames();
+                    while (fields.hasNext()) {
+                        if (!allowed.contains(fields.next())) {
+                            throw invalidTool();
+                        }
+                    }
+                    JsonNode id = arguments.get("variantId");
+                    if (id == null || !id.isIntegralNumber() || !id.canConvertToLong() || id.asLong() <= 0
+                            || memberId == null || memberId <= 0 || sessionRepository == null) {
+                        throw invalidTool();
+                    }
+                    Integer weight = optionalPositiveInteger(arguments, "weight");
+                    Integer height = optionalPositiveInteger(arguments, "height");
+                    JsonNode preference = arguments.get("preferenceQuery");
+                    if (preference != null && !preference.isNull()
+                            && (!preference.isTextual() || preference.asText().length() > 500)) {
+                        throw invalidTool();
+                    }
+                    String query = preference == null || preference.isNull() ? null : preference.asText().strip();
+                    // LLM의 ID를 신뢰하지 않고 현재 세션의 확정 상품과 일치할 때만 조회한다.
+                    yield sessionRepository.findChatSession(memberId).timeout(Duration.ofSeconds(2))
+                            .switchIfEmpty(Mono.error(invalidTool()))
+                            .flatMap(session -> {
+                                if (!Objects.equals(memberId, session.getMemberId()) || session.getProductDto() == null
+                                        || !Objects.equals(id.asLong(), session.getProductDto().getProductVariantId())) {
+                                    return Mono.error(invalidTool());
+                                }
+                                return service.searchReviewByBodyInfoAndPreferenceQuery(id.asLong(), weight, height, query)
+                                        .map(ReviewToolResult::reviews);
+                            });
                 }
                 default -> throw invalidTool();
             };
         });
+    }
+
+    private Integer optionalPositiveInteger(JsonNode arguments, String name) {
+        JsonNode value = arguments.get(name);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        if (!value.isIntegralNumber() || !value.canConvertToInt() || value.asInt() <= 0
+                || value.asInt() > 1000) {
+            throw invalidTool();
+        }
+        return value.asInt();
     }
 
     private ChatbotException invalidTool() {

@@ -3,6 +3,7 @@ package com.sh.commercechatbot.agent.review.tool;
 import com.sh.commercechatbot.chat.dto.request.ChatSessionDto;
 import com.sh.commercechatbot.common.exception.chatbot.ChatbotException;
 import com.sh.commercechatbot.common.exception.chatbot.ChatbotErrorType;
+import com.sh.commercechatbot.es.review.repository.ReviewDocumentRepository;
 import org.springframework.beans.factory.annotation.Value;
 import java.time.Duration;
 import java.util.List;
@@ -31,7 +32,8 @@ public class ReviewAgentToolService {
      * - 활성 Tool은 Registry에 명시적으로 등록한다.
      * - 입력·출력 계약과 조회 로직은 후속 구현에서 확정한다.
      */
-    private final ProductDocumentRepository documentRepository;
+    private final ProductDocumentRepository productDocumentRepository;
+    private final ReviewDocumentRepository reviewDocumentRepository;
     private final ProductSearchResultService productSearchResultService;
     @Value("${chat.session.read-timeout:2s}")
     private Duration sessionReadTimeout = Duration.ofSeconds(2);
@@ -43,8 +45,8 @@ public class ReviewAgentToolService {
     public Mono<ProductSearchResultRecord> searchProductByName(
             @ToolParam(description = "사용자가 언급한 상품명. 브랜드와 색상을 포함할 수 있다.")String productName
             ) {
-        return documentRepository.search(productName)
-                .take(5)
+        return productDocumentRepository.search(productName)
+                .take(10)
                 .collectList()
                 .map(results -> results.isEmpty()
                         ? ProductSearchResultRecord.notFound("NOT_FOUND")
@@ -95,6 +97,30 @@ public class ReviewAgentToolService {
                     });
         }).onErrorMap(error -> error instanceof ChatbotException ? error :
                 new ChatbotException("상품 확정 처리에 실패했습니다.", ChatbotErrorType.CHAT_SESSION_READ_FAILED));
+    }
+
+    @Tool(description = "서버에서 확정된 상품의 리뷰를 신체 조건과 착용 요구로 검색한다. 상품 미확정 시 호출하지 않고, 사용자가 제공하지 않은 조건은 추측하지 않는다.")
+    public Mono<List<com.sh.commercechatbot.es.review.dto.ReviewEvidenceDto>> searchReviewByBodyInfoAndPreferenceQuery(
+            @ToolParam(description = "세션에 확정된 상품의 Variant ID") Long variantId,
+            @ToolParam(description = "사용자가 제공한 몸무게(kg)", required = false) Integer weight,
+            @ToolParam(description = "사용자가 제공한 키(cm)", required = false) Integer height,
+            @ToolParam(description = "핏·착용 요구만 포함. 상품명·키·몸무게 제외", required = false) String preferenceQuery)
+    {
+        return Mono.deferContextual(context -> {
+            String requestId = context.getOrDefault("chatRequestId", "unassigned");
+            log.info("requestId={} code=REVIEW_TOOL_STARTED", requestId);
+            return reviewDocumentRepository.searchReviewByBodyInfoAndPreferenceQuery(variantId, weight, height, preferenceQuery)
+                    .doOnNext(documents -> log.info("requestId={} code=REVIEW_DOCUMENTS_RECEIVED count={}",
+                            requestId, documents.size()))
+                    .map(documents -> documents.stream()
+                            .filter(document -> variantId.equals(document.getProductVariantId()))
+                            .limit(10)
+                            .map(com.sh.commercechatbot.es.review.dto.ReviewEvidenceDto::new)
+                            .toList())
+                    .doOnNext(evidences -> log.info("requestId={} code={} evidenceCount={}", requestId,
+                            evidences.isEmpty() ? "REVIEW_EVIDENCE_EMPTY" : "REVIEW_EVIDENCE_READY", evidences.size()))
+                    .doOnError(error -> log.warn("requestId={} code=REVIEW_TOOL_FAILED", requestId));
+        });
     }
 
 

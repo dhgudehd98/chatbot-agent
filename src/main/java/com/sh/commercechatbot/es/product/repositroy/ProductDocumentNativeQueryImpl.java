@@ -1,6 +1,7 @@
 package com.sh.commercechatbot.es.product.repositroy;
 
 import co.elastic.clients.elasticsearch._types.query_dsl.TextQueryType;
+import co.elastic.clients.elasticsearch._types.query_dsl.Operator;
 import com.sh.commercechatbot.es.product.document.ProductDocument;
 import com.sh.commercechatbot.es.product.dto.ProductSearchResultDto;
 import lombok.RequiredArgsConstructor;
@@ -28,15 +29,19 @@ public class ProductDocumentNativeQueryImpl implements ProductDocumentNativeQuer
                                                         .multiMatch(mm -> mm
                                                                 .query(keyword)
                                                                 .fields(
-                                                                        "variantName^100"
+                                                                        "variantName",
+                                                                        "baseProductName",
+                                                                        "brandName"
                                                                 )
                                                                 .type(TextQueryType.CrossFields)
+                                                                // 모든 검색 토큰이 일치해야 하므로 '후드'만 같은 다른 상품은 제외한다.
+                                                                .operator(Operator.And)
                                                         )
                                                 )
                                 )
                 )
                 // 페이징 설정
-                .withPageable(PageRequest.of(0, 5))
+                .withPageable(PageRequest.of(0, 10))
                 .build();
 
         return operations.search(query, ProductDocument.class)
