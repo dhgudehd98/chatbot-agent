@@ -1,11 +1,14 @@
 package com.sh.commercechatbot.agent.review.tool;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sh.commercechatbot.chat.repository.ChatSessionRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import com.sh.commercechatbot.agent.review.tool.dto.ReviewToolResult;
 import java.time.Duration;
+import java.util.Iterator;
 import java.util.Set;
 import java.util.Objects;
 import com.sh.commercechatbot.gpt.dto.request.GptToolDefinition;
@@ -18,6 +21,7 @@ import java.util.List;
 
 /** 활성 Tool의 스키마 제공과 입력 검증. 임의의 메서드 이름을 실행하지 않는다. */
 @Component
+@Slf4j
 public class ReviewAgentToolRegistry {
     private final ReviewAgentToolService service;
     private final ObjectMapper mapper;
@@ -85,14 +89,16 @@ public class ReviewAgentToolRegistry {
             }
             JsonNode arguments;
             try {
-                arguments = mapper.reader().with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                arguments = mapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
                         .readTree(call.function().arguments());
             } catch (Exception exception) {
                 throw invalidTool();
             }
+
             if (arguments == null || !arguments.isObject() || arguments.size() == 0) {
                 throw invalidTool();
             }
+
             return switch (call.function().name()) {
                 case "searchProductByName" -> {
                     if (arguments.size() != 1 || !arguments.has("productName") || !arguments.get("productName").isTextual()) {
@@ -113,10 +119,15 @@ public class ReviewAgentToolRegistry {
                 }
                 case "searchReviewByBodyInfoAndPreferenceQuery", "searchReviewAll" -> {
                     boolean withoutBodyInfo = "searchReviewAll".equals(call.function().name());
+
+                    // 허용하는 필드 목록 값 설정
                     Set<String> allowed = withoutBodyInfo
                             ? Set.of("variantId", "preferenceQuery")
                             : Set.of("variantId", "weight", "height", "preferenceQuery");
-                    java.util.Iterator<String> fields = arguments.fieldNames();
+
+                    // arguments.fieldNames() : LLM이 실제로 보낸 필드 목록
+                    Iterator<String> fields = arguments.fieldNames();
+
                     while (fields.hasNext()) {
                         if (!allowed.contains(fields.next())) {
                             throw invalidTool();
@@ -127,13 +138,17 @@ public class ReviewAgentToolRegistry {
                             || memberId == null || memberId <= 0 || sessionRepository == null) {
                         throw invalidTool();
                     }
+
                     Integer weight = optionalPositiveInteger(arguments, "weight");
                     Integer height = optionalPositiveInteger(arguments, "height");
+
                     JsonNode preference = arguments.get("preferenceQuery");
+
                     if (preference != null && !preference.isNull()
                             && (!preference.isTextual() || preference.asText().length() > 500)) {
                         throw invalidTool();
                     }
+
                     String query = preference == null || preference.isNull() ? null : preference.asText().strip();
                     // LLM의 ID를 신뢰하지 않고 현재 세션의 확정 상품과 일치할 때만 조회한다.
                     yield sessionRepository.findChatSession(memberId).timeout(Duration.ofSeconds(2))
@@ -141,6 +156,7 @@ public class ReviewAgentToolRegistry {
                             .flatMap(session -> {
                                 if (!Objects.equals(memberId, session.getMemberId()) || session.getProductDto() == null
                                         || !Objects.equals(id.asLong(), session.getProductDto().getProductVariantId())) {
+
                                     return Mono.error(invalidTool());
                                 }
                                 return (withoutBodyInfo

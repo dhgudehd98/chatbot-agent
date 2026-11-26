@@ -107,6 +107,10 @@ public class ReviewAgentToolService {
             @ToolParam(description = "사용자가 제공한 키(cm)", required = false) Integer height,
             @ToolParam(description = "핏·착용 요구만 포함. 상품명·키·몸무게 제외", required = false) String preferenceQuery)
     {
+        log.info("상품 번호 : {}", variantId);
+        log.info("weigth : {}", weight);
+        log.info("height : {}", height);
+        log.info("preferenceQuery : {}", preferenceQuery);
         return Mono.deferContextual(context -> {
             String requestId = context.getOrDefault("chatRequestId", "unassigned");
             log.info("requestId={} code=REVIEW_TOOL_STARTED", requestId);
